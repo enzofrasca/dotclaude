@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Install or update dotclaude into ~/.claude. Needs only git.
+# Tracks only an allowlist (see .gitignore); sessions, history, caches and
+# credentials stay local. On Windows, run it from Git Bash.
+set -euo pipefail
+
+REPO="${DOTCLAUDE_REPO:-https://github.com/enzofrasca/dotclaude.git}"
+DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+
+is_dotclaude() {
+	[[ -d "$DIR/.git" ]] || return 1
+	git -C "$DIR" remote get-url origin 2>/dev/null | grep -q 'dotclaude'
+}
+
+if is_dotclaude; then
+	git -C "$DIR" pull --ff-only
+elif [[ ! -e "$DIR" || -z "$(ls -A "$DIR" 2>/dev/null || true)" ]]; then
+	mkdir -p "$(dirname "$DIR")"
+	git clone "$REPO" "$DIR"
+else
+	# Existing ~/.claude: fetch the tracked files, keep every other local file.
+	git -C "$DIR" init -q -b main
+	git -C "$DIR" remote add origin "$REPO" 2>/dev/null || git -C "$DIR" remote set-url origin "$REPO"
+	git -C "$DIR" fetch -q origin
+	git -C "$DIR" reset -q --mixed origin/main
+	git -C "$DIR" branch --set-upstream-to=origin/main main >/dev/null
+	# The repo's settings replace the machine's; the old ones stay in a backup
+	if [[ -f "$DIR/settings.json" ]] && ! git -C "$DIR" diff --quiet -- settings.json; then
+		cp "$DIR/settings.json" "$DIR/settings.json.bak"
+		git -C "$DIR" checkout -- settings.json
+		echo "replaced settings.json; the previous one is settings.json.bak"
+	fi
+	# Write the tracked files that aren't on disk yet
+	git -C "$DIR" ls-files -d | while IFS= read -r file; do git -C "$DIR" checkout -- "$file"; done
+fi
+
+command -v claude >/dev/null 2>&1 || echo "claude not on PATH — install Claude Code: https://code.claude.com"
+echo "done — the mods load in the next Claude Code session"

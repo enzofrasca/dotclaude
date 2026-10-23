@@ -1,0 +1,54 @@
+{
+  "syncClaudeAiSkills": false,
+  "env": {
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/statusbar"
+  },
+  "permissions": {
+    "deny": [
+      "Artifact",
+      "Workflow",
+      "ScheduleWakeup",
+      "SendFeedback",
+      "ShareOnboardingGuide",
+      "ReportFindings",
+      "CronCreate",
+      "CronDelete",
+      "CronList"
+    ]
+  },
+  "model": "sonnet",
+  "disableClaudeAiConnectors": true,
+  "skillOverrides": {
+    "artifact-design": "off",
+    "artifact-diagramming": "off",
+    "artifact-capabilities": "off",
+    "workflow-authoring": "off",
+    "dataviz": "off",
+    "claude-in-chrome": "off",
+    "plugin-authoring": "off",
+    "claude-api": "off",
+    "schedule": "off",
+    "loop": "off",
+    "run": "off",
+    "keybindings-help": "off",
+    "fewer-permission-prompts": "off",
+    "update-config": "off",
+    "code-review": "user-invocable-only",
+    "simplify": "user-invocable-only",
+    "security-review": "off",
+    "init": "off"
+  },
+  "theme": "dark",
+  "editorMode": "normal",
+  "switchModelsOnFlag": false,
+  "modelSettings": {
+    "claude-sonnet-5-5": {
+      "effortLevel": "high"
+    }
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  }
+}
