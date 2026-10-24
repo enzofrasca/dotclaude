@@ -1,0 +1,6 @@
+{
+  "name": "exa-search",
+  "version": "0.1.0",
+  "description": "Answers WebSearch with Exa: ranked results with highlighted excerpts; falls back to the native search",
+  "author": { "name": "Enzo Frasca" }
+}

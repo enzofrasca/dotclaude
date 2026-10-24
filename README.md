@@ -12,6 +12,7 @@ of the harness.
 | skills | bundled skills off; `/code-review` and `/simplify` on demand only |
 | connectors | claude.ai MCP connectors never load |
 | status line | [`statusbar`](mods/statusbar) mod on the permission-mode row |
+| web search | [`exa-search`](mods/exa-search) mod answers `WebSearch` with Exa |
 
 ## Setup & update
 
@@ -47,4 +48,19 @@ Optional, in `env` of `settings.json`:
 
 ```bash
 cd ~/.claude/mods/statusbar && claude plugin test && claude plugin validate .
+```
+
+## exa-search
+
+Answers `WebSearch` with [Exa](https://exa.ai): ten ranked results with
+highlighted excerpts, in `WebSearch`'s own shape, so Claude reads them like any
+search. `mode: "extended"` runs Exa's deep search; allowed and blocked domains
+carry over. `WebFetch` stays native.
+
+The key comes from `EXA_API_KEY` in the environment, or from
+`EXA_API_KEY=...` in `~/.claude/.env`, which is never tracked. Without a key,
+or when Exa fails, the native search answers.
+
+```bash
+cd ~/.claude/mods/exa-search && claude plugin test && claude plugin validate .
 ```

@@ -1,0 +1,4 @@
+{
+  "description": "exa-search hooks module",
+  "modules": ["./register.ts"]
+}

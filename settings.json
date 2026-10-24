@@ -1,7 +1,12 @@
 {
   "syncClaudeAiSkills": false,
   "env": {
-    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/statusbar"
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/statusbar:~/.claude/mods/exa-search"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
   },
   "permissions": {
     "deny": [
@@ -16,7 +21,7 @@
       "CronList"
     ]
   },
-  "model": "sonnet",
+  "model": "opus",
   "disableClaudeAiConnectors": true,
   "skillOverrides": {
     "artifact-design": "off",
@@ -38,17 +43,12 @@
     "security-review": "off",
     "init": "off"
   },
-  "theme": "dark",
-  "editorMode": "normal",
-  "switchModelsOnFlag": false,
   "modelSettings": {
     "claude-sonnet-5-5": {
       "effortLevel": "high"
     }
   },
-  "attribution": {
-    "commit": "",
-    "pr": "",
-    "sessionUrl": false
-  }
+  "theme": "dark",
+  "editorMode": "normal",
+  "switchModelsOnFlag": false
 }
