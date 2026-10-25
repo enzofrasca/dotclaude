@@ -27,9 +27,17 @@ let effort = ''
 let dir = ''
 let branch = ''
 let dirty = false
+let gitDir = ''
 let usage: any = null
-let refreshing: Promise<void> | null = null
+let syncing: Promise<void> | null = null
+let syncAgain = false
+let wantConfig = false
+let syncingGit: Promise<void> | null = null
 let configChecked = false
+// After /model or /effort the picker may close later than the command returns,
+// so for a while the render itself re-reads what those commands change
+let watchUntil = 0
+let lastPeek = 0
 
 // pct used → default color / amber (≥50) / red (≥80)
 function level(pct: number, base: string) {
@@ -86,60 +94,122 @@ async function loadEnv($) {
   home = h ?? profile ?? ''
 }
 
-async function load($) {
+// The cheap, in-process half: model, folder, usage, and effort when asked.
+// Draws as soon as it has them; git comes separately and never holds this up
+async function readSession($) {
+  const withConfig = wantConfig || (!effort && !configChecked)
+  wantConfig = false
   const [m, cwd, u, rows] = await Promise.all([
     $.session.model(),
     $.session.cwd(),
     $.session.usage(),
-    // Until the first request reports the live effort, take it from /config;
-    // once per load, since a model without effort never gets a row
-    effort || configChecked ? null : $.config.list().catch(() => null),
+    // /config knows the effort before the first request reports the live one
+    withConfig ? $.config.list().catch(() => null) : null,
   ])
-  configChecked = true
+  configChecked ||= withConfig
   model = prettyModel(m)
   dir = cwd
   usage = u
   const row = rows?.find((r) => /effort/i.test(r.key))
-  if (!effort && typeof row?.value === 'string' && row.value in EFFORT) effort = row.value
-
-  // One git call for branch + dirty state
-  const git = await $.process.run(['git', '--no-optional-locks', 'status', '--porcelain=v2', '--branch'], { cwd: dir, timeoutMs: 2000 })
-    .catch(() => null)
-  const ok = git?.exitCode === 0
-  branch = ok ? /^# branch\.head (.+)$/m.exec(git.stdout)?.[1] ?? '' : ''
-  dirty = ok && git.stdout.split('\n').some((l) => l && !l.startsWith('#'))
+  if (typeof row?.value === 'string' && row.value in EFFORT) effort = row.value
   $.ui.invalidate('ui.render')
+  if (dir !== gitDir) void syncGit($)
 }
 
-// Coalesces overlapping refreshes (timer + end of turn) into one; a failed
-// refresh keeps the last values on screen
-function refresh($) {
-  refreshing ??= load($).catch(() => {}).finally(() => { refreshing = null })
-  return refreshing
+// Coalesces overlapping reads into one; a request that lands mid-read runs
+// again right after, so the last change is never lost. A failed read keeps
+// the last values on screen
+function sync($, withConfig = false) {
+  wantConfig ||= withConfig
+  if (syncing) {
+    syncAgain = true
+    return syncing
+  }
+  syncing = readSession($).catch(() => {}).finally(() => {
+    syncing = null
+    if (syncAgain) {
+      syncAgain = false
+      void sync($)
+    }
+  })
+  return syncing
+}
+
+// One git call for branch + dirty state; redraws only when they changed
+async function readGit($) {
+  const where = dir
+  const git = await $.process.run(['git', '--no-optional-locks', 'status', '--porcelain=v2', '--branch'], { cwd: where, timeoutMs: 2000 })
+    .catch(() => null)
+  const ok = git?.exitCode === 0
+  const nextBranch = ok ? /^# branch\.head (.+)$/m.exec(git.stdout)?.[1] ?? '' : ''
+  const nextDirty = ok && git.stdout.split('\n').some((l) => l && !l.startsWith('#'))
+  gitDir = where
+  if (nextBranch !== branch || nextDirty !== dirty) {
+    branch = nextBranch
+    dirty = nextDirty
+    $.ui.invalidate('ui.render')
+  }
+}
+
+function syncGit($) {
+  syncingGit ??= readGit($).catch(() => {}).finally(() => { syncingGit = null })
+  return syncingGit
+}
+
+// Called from the render: at most every half second, re-reads the model (one
+// in-process call), or all of /config's side while a /model or /effort
+// command may still be settling. Redraws only on a difference
+function peek($) {
+  const now = Date.now()
+  if (now - lastPeek < 500) return
+  lastPeek = now
+  if (now < watchUntil) {
+    void sync($, true)
+    return
+  }
+  void Promise.resolve($.session.model()).then((m) => {
+    const next = prettyModel(m)
+    if (next !== model) {
+      model = next
+      $.ui.invalidate('ui.render')
+    }
+  }).catch(() => {})
 }
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
     await loadEnv($)
-    // In the background, so a slow git never holds up the session start
-    void refresh($)
+    // In the background, so nothing slow holds up the session start
+    void sync($)
+    void syncGit($)
     // Keeps the reset countdown and the branch current while idle; the
     // countdown has minute resolution, so once a minute is enough
-    $.clock.every(60_000, () => refresh($))
+    $.clock.every(60_000, () => {
+      $.ui.invalidate('ui.render')
+      void syncGit($)
+      return sync($)
+    })
     return next(e)
   })
 
+  // The live effort of a request: also drops it for a model that takes none.
+  // A subagent's request says nothing about the session's own
   on('turn.step', async function* ($, e, next) {
-    if (e.effort !== undefined && String(e.effort) !== effort) {
-      effort = String(e.effort)
-      $.ui.invalidate('ui.render')
+    if (e.agentId === undefined) {
+      const live = e.effort === undefined ? '' : String(e.effort)
+      if (live !== effort) {
+        effort = live
+        $.ui.invalidate('ui.render')
+      }
     }
     yield* next(e)
+    // The response is in: context and cost moved before the turn ends
+    if (e.agentId === undefined) void sync($)
   })
 
   on('turn.complete', async ($, e, next) => {
-    // In the background, so a slow git never holds up the end of a turn
-    void refresh($)
+    void sync($)
+    void syncGit($)
     return next(e)
   })
 
@@ -149,7 +219,26 @@ export function register(on) {
     return next(e)
   })
 
+  // The /config menu's Model and Effort rows: draw the new value once written
+  on('config.set', { key: /model|effort/i }, async ($, e, next) => {
+    const r = await next(e)
+    if (!r.deny) {
+      if (/effort/i.test(e.key) && typeof r.value === 'string' && r.value in EFFORT) effort = r.value
+      void sync($, true)
+    }
+    return r
+  })
+
+  // /model and /effort, typed or picked
+  on('command.run', { command: /^(model|effort|fast)$/ }, async ($, e, next) => {
+    const r = await next(e)
+    watchUntil = Date.now() + 30_000
+    void sync($, true)
+    return r
+  })
+
   on('ui.render', { component: 'PromptHint' }, async ($, e) => {
+    peek($)
     const { Text } = $.ui.resolve(e)
     const dot: Seg = [C.sep, ' · ']
     const parts: Seg[][] = []

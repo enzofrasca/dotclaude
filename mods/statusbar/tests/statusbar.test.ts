@@ -18,9 +18,11 @@ async function start($, on, s: { model: string, cwd: string, usage: object, git?
   on('session.model', () => ({ value: s.model }))
   on('session.cwd', () => ({ value: s.cwd }))
   on('session.usage', () => ({ value: s.usage }))
-  on('config.list', () => ({ value: s.effort ? [{ key: 'effortLevel', label: 'Effort', kind: 'enum', value: s.effort, isLocked: false }] : [] }))
+  let effort = s.effort
+  on('config.list', () => ({ value: effort ? [{ key: 'effortLevel', label: 'Effort', kind: 'enum', value: effort, isLocked: false }] : [] }))
   on('process.run', () => ({ value: s.git === undefined ? { exitCode: 128, stdout: '', stderr: '' } : { exitCode: 0, stdout: s.git, stderr: '' } }))
   on('session.start', () => ({ cwd: s.cwd }))
+  on('config.set', ($, e) => { effort = String(e.value); return { value: e.value } })
   on('turn.step', async function* ($, e) {
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
   })
@@ -89,4 +91,26 @@ test('a narrow terminal drops whole items from the right to fit after the mode',
   expect(await tiny.find({ type: 'Text', text: 'Opus 5' })).toBeDefined()
   expect(await tiny.find({ type: 'Text', text: 'agent' })).toBeUndefined()
   await tiny.unmount()
+})
+
+test('a /config effort change draws at once, without waiting for the next request', async ($, on) => {
+  await start($, on, { model: 'claude-sonnet-5-5', cwd: '/tmp', effort: 'high', usage: { context: { window: 200000 }, rateLimits: [] } })
+  const ui = await $.ui.mount(HINT)
+  expect(await ui.find({ type: 'Text', text: ' high' })).toBeDefined()
+
+  await $.config.set({ key: 'effortLevel', value: 'max' })
+  expect(await ui.find({ type: 'Text', text: ' max' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' high' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a request from a model without effort drops the effort', async ($, on) => {
+  await start($, on, { model: 'claude-sonnet-5-5', cwd: '/tmp', effort: 'high', usage: { context: { window: 200000 }, rateLimits: [] } })
+  const stream = $.turn.step({ turnId: 't', index: 0, model: 'claude-haiku-5-5', messageCount: 1 })
+  let step = await stream.next()
+  while (step.done !== true) step = await stream.next()
+
+  const ui = await $.ui.mount(HINT)
+  expect(await ui.find({ type: 'Text', text: ' high' })).toBeUndefined()
+  await ui.unmount()
 })
